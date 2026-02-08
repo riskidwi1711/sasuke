@@ -1,0 +1,27 @@
+{
+  "network-configs": {
+    "fabric-network": {
+      "name": "Fabric Network",
+      "profile": "./connection-profile/fabric-network.json"
+    }
+  },
+  "license": "Apache-2.0",
+  "explorer": {
+    "persistence": "postgreSQL",
+    "platforms": [
+      "fabric"
+    ]
+  },
+  "postgreSQL": {
+    "host": "explorer-db",
+    "port": "5432",
+    "database": "fabricexplorer",
+    "username": "hppoc",
+    "passwd": "password"
+  },
+  "sync": {
+    "type": "local",
+    "platform": "fabric",
+    "blocksSyncTime": "3"
+  }
+}

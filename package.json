@@ -1,0 +1,7 @@
+{
+  "dependencies": {
+    "cors": "^2.8.5",
+    "kubo-rpc-client": "^6.0.2",
+    "multer": "^2.0.2"
+  }
+}

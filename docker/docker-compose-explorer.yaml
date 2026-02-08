@@ -1,0 +1,64 @@
+version: '3.7'
+
+volumes:
+  explorer-db-data:
+  explorer-walletstore:
+
+networks:
+  fabric-network:
+    name: ${NETWORK_NAME}
+
+services:
+  explorer-db:
+    image: hyperledger/explorer-db:latest
+    container_name: explorer-db
+    hostname: explorer-db
+    environment:
+      - DATABASE_DATABASE=${EXPLORER_DB_NAME}
+      - DATABASE_USERNAME=${EXPLORER_DB_USER}
+      - DATABASE_PASSWORD=${EXPLORER_DB_PASSWORD}
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "localhost", "-p", "5432", "-U", "${EXPLORER_DB_USER}"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    volumes:
+      - explorer-db-data:/var/lib/postgresql/data
+    ports:
+      - "${EXPLORER_DB_PORT}:5432"
+    networks:
+      - fabric-network
+
+  explorer:
+    image: hyperledger/explorer:latest
+    container_name: explorer
+    hostname: explorer
+    environment:
+      - DATABASE_HOST=explorer-db
+      - DATABASE_PORT=5432
+      - DATABASE_DATABASE=${EXPLORER_DB_NAME}
+      - DATABASE_USERNAME=${EXPLORER_DB_USER}
+      - DATABASE_PASSWD=${EXPLORER_DB_PASSWORD}
+      - LOG_LEVEL_APP=info
+      - LOG_LEVEL_DB=info
+      - LOG_LEVEL_CONSOLE=info
+      - LOG_CONSOLE_STDOUT=true
+      - DISCOVERY_AS_LOCALHOST=false
+      - PORT=${EXPLORER_PORT}
+    volumes:
+      - ../explorer/config.json:/opt/explorer/app/platform/fabric/config.json
+      - ../explorer/connection-profile:/opt/explorer/app/platform/fabric/connection-profile
+      - ../organizations:/tmp/crypto
+      - explorer-walletstore:/opt/explorer/wallet
+    ports:
+      - "${EXPLORER_PORT}:${EXPLORER_PORT}"
+    depends_on:
+      explorer-db:
+        condition: service_healthy
+    networks:
+      - fabric-network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:${EXPLORER_PORT}"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
