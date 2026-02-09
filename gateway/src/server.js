@@ -4,12 +4,29 @@ const dotenv = require('dotenv');
 dotenv.config();
 
 const { getContractForMSP, getContractForMSPAndCC } = require('./gateway');
+const logger = require('./logger');
+const requestLogger = require('./middleware/requestLogger');
 let protos;
 try { protos = require('@hyperledger/fabric-protos'); } catch { protos = null; }
+// Protobuf decode helpers (google-protobuf)
+function asU8(buf) { return buf instanceof Uint8Array ? buf : new Uint8Array(buf); }
+function getNs() {
+  const P = protos || {};
+  return { common: (P.common || {}), peerNs: (P.peer || P.protos || {}) };
+}
+function tryDeserialize(Type, buf) {
+  try {
+    if (!Type || !buf) return null;
+    if (typeof Type.decode === 'function') return Type.decode(buf);
+    if (typeof Type.deserializeBinary === 'function') return Type.deserializeBinary(asU8(buf));
+  } catch (_) {}
+  return null;
+}
 
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
+app.use(requestLogger);
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok' });
@@ -22,6 +39,7 @@ app.post('/api/evaluate', async (req, res) => {
     if (!fn) return res.status(400).json({ error: 'function is required' });
     const msp = resolveMSP(req);
     const cc = target && typeof target === 'string' ? target : process.env.FABRIC_CHAINCODE;
+    if (req.log) req.log.info('evaluate.call', { msp, cc, fn, argc: Array.isArray(args) ? args.length : 0 });
     const contract = await getContractForMSPAndCC(msp, cc);
     const result = await contract.evaluateTransaction(fn, ...args);
     // try parse JSON
@@ -29,6 +47,7 @@ app.post('/api/evaluate', async (req, res) => {
     try { payload = JSON.parse(result.toString('utf8')); } catch { payload = result.toString('utf8'); }
     res.json({ ok: true, result: payload });
   } catch (err) {
+    if (req.log) req.log.error('evaluate.error', { error: err.message });
     res.status(500).json({ ok: false, error: err.message });
   }
 });
@@ -42,12 +61,14 @@ app.post('/api/submit', async (req, res) => {
     const contract = await getContractForMSP(msp);
     const tx = contract.createTransaction(fn);
     const txId = tx.getTransactionId();
+    if (req.log) req.log.info('submit.call', { msp, fn, argc: Array.isArray(args) ? args.length : 0, txId });
     const result = await tx.submit(...args);
     let payload;
     try { payload = JSON.parse(result.toString('utf8')); } catch { payload = result.toString('utf8'); }
     // fabric-network waits for commit by default if using the default commit handler; if this succeeds, we mark committed
     res.json({ ok: true, txId, committed: true, result: payload });
   } catch (err) {
+    if (req.log) req.log.error('submit.error', { error: err.message });
     res.status(500).json({ ok: false, committed: false, error: err.message });
   }
 });
@@ -61,6 +82,7 @@ app.get('/api/assets', async (req, res) => {
     const data = JSON.parse(result.toString('utf8'));
     res.json({ ok: true, assets: data });
   } catch (err) {
+    if (req.log) req.log.error('assets.list.error', { error: err.message });
     res.status(500).json({ ok: false, error: err.message });
   }
 });
@@ -73,6 +95,7 @@ app.get('/api/assets/:id', async (req, res) => {
     const data = JSON.parse(result.toString('utf8'));
     res.json({ ok: true, asset: data });
   } catch (err) {
+    if (req.log) req.log.error('assets.get.error', { error: err.message });
     res.status(500).json({ ok: false, error: err.message });
   }
 });
@@ -84,14 +107,18 @@ app.get('/api/network/chaininfo', async (req, res) => {
     const contract = await getContractForMSPAndCC(msp, 'qscc');
     const channel = process.env.FABRIC_CHANNEL;
     const buf = await contract.evaluateTransaction('GetChainInfo', channel);
-    if (protos && protos.common && protos.common.BlockchainInfo && protos.common.BlockchainInfo.decode) {
-      const info = protos.common.BlockchainInfo.decode(buf);
-      const toHex = (b) => (b && b.length ? Buffer.from(b).toString('hex') : '');
-      res.json({ ok: true, height: info.height ? info.height.toString() : undefined, currentBlockHash: toHex(info.currentBlockHash), previousBlockHash: toHex(info.previousBlockHash) });
+    const { common } = getNs();
+    const info = tryDeserialize(common.BlockchainInfo, buf);
+    if (info) {
+      const height = typeof info.getHeight === 'function' ? String(info.getHeight()) : (info.height ? String(info.height) : undefined);
+      const cur = typeof info.getCurrentblockhash_asU8 === 'function' ? Buffer.from(info.getCurrentblockhash_asU8()).toString('hex') : '';
+      const prev = typeof info.getPreviousblockhash_asU8 === 'function' ? Buffer.from(info.getPreviousblockhash_asU8()).toString('hex') : '';
+      res.json({ ok: true, height, currentBlockHash: cur, previousBlockHash: prev });
     } else {
       res.json({ ok: true, base64: buf.toString('base64') });
     }
   } catch (err) {
+    if (req.log) req.log.error('qscc.chaininfo.error', { error: err.message });
     res.status(500).json({ ok: false, error: err.message });
   }
 });
@@ -102,16 +129,29 @@ app.get('/api/network/block/:num', async (req, res) => {
     const contract = await getContractForMSPAndCC(msp, 'qscc');
     const channel = process.env.FABRIC_CHANNEL;
     const buf = await contract.evaluateTransaction('GetBlockByNumber', channel, String(req.params.num));
-    if (protos && protos.common && protos.common.Block && protos.common.Block.decode) {
-      const block = protos.common.Block.decode(buf);
-      const number = block.header && block.header.number ? block.header.number.toString() : String(req.params.num);
+    const { common } = getNs();
+    const block = tryDeserialize(common.Block, buf);
+    if (block) {
+      let number = String(req.params.num);
       const txs = [];
       try {
-        const envs = block.data.data || [];
+        if (typeof block.getHeader === 'function' && block.getHeader() && typeof block.getHeader().getNumber === 'function') {
+          number = String(block.getHeader().getNumber());
+        }
+        const data = typeof block.getData === 'function' ? block.getData() : null;
+        const envs = data && typeof data.getDataList === 'function' ? data.getDataList() : [];
         for (const env of envs) {
-          const payload = protos.common.Payload.decode(env.payload);
-          const chdr = protos.common.ChannelHeader.decode(payload.header.channel_header);
-          txs.push({ txId: chdr.tx_id, timestamp: chdr.timestamp, type: chdr.typeString || chdr.type });
+          const payload = tryDeserialize(common.Payload, env.getPayload_asU8 ? env.getPayload_asU8() : env.payload);
+          if (!payload) continue;
+          const header = typeof payload.getHeader === 'function' ? payload.getHeader() : null;
+          const chdrBytes = header && typeof header.getChannelHeader_asU8 === 'function' ? header.getChannelHeader_asU8() : null;
+          const chdr = tryDeserialize(common.ChannelHeader, chdrBytes);
+          if (chdr) {
+            const txId = typeof chdr.getTxId === 'function' ? chdr.getTxId() : chdr.tx_id;
+            const timestamp = typeof chdr.getTimestamp === 'function' && chdr.getTimestamp() ? chdr.getTimestamp().toDate().toISOString() : chdr.timestamp;
+            const type = typeof chdr.getType === 'function' ? chdr.getType() : chdr.type;
+            txs.push({ txId, timestamp, type });
+          }
         }
       } catch (_) {}
       res.json({ ok: true, block: { number, txCount: txs.length, txs } });
@@ -119,6 +159,7 @@ app.get('/api/network/block/:num', async (req, res) => {
       res.json({ ok: true, base64: buf.toString('base64') });
     }
   } catch (err) {
+    if (req.log) req.log.error('qscc.blockByNumber.error', { error: err.message });
     res.status(500).json({ ok: false, error: err.message });
   }
 });
@@ -129,20 +170,30 @@ app.get('/api/network/tx/:txId', async (req, res) => {
     const contract = await getContractForMSPAndCC(msp, 'qscc');
     const channel = process.env.FABRIC_CHANNEL;
     const buf = await contract.evaluateTransaction('GetTransactionByID', channel, req.params.txId);
-    if (protos && protos.protos && protos.protos.ProcessedTransaction && protos.protos.ProcessedTransaction.decode) {
-      const ptx = protos.protos.ProcessedTransaction.decode(buf);
+    const { common, peerNs } = getNs();
+    const PTX = peerNs.ProcessedTransaction || (peerNs.protos && peerNs.protos.ProcessedTransaction);
+    const ptx = tryDeserialize(PTX, buf);
+    if (ptx) {
       let txId = req.params.txId, timestamp = undefined, validationCode = undefined;
       try {
-        const payload = protos.common.Payload.decode(ptx.transactionEnvelope.payload);
-        const chdr = protos.common.ChannelHeader.decode(payload.header.channel_header);
-        txId = chdr.tx_id; timestamp = chdr.timestamp;
-        validationCode = ptx.validationCode;
+        const te = typeof ptx.getTransactionenvelope === 'function' ? ptx.getTransactionenvelope() : ptx.transactionEnvelope;
+        const payloadBytes = te && typeof te.getPayload_asU8 === 'function' ? te.getPayload_asU8() : (te ? te.payload : null);
+        const payload = tryDeserialize(common.Payload, payloadBytes);
+        const header = payload && typeof payload.getHeader === 'function' ? payload.getHeader() : null;
+        const chdrBytes = header && typeof header.getChannelHeader_asU8 === 'function' ? header.getChannelHeader_asU8() : null;
+        const chdr = tryDeserialize(common.ChannelHeader, chdrBytes);
+        if (chdr) {
+          txId = typeof chdr.getTxId === 'function' ? chdr.getTxId() : chdr.tx_id;
+          timestamp = typeof chdr.getTimestamp === 'function' && chdr.getTimestamp() ? chdr.getTimestamp().toDate().toISOString() : chdr.timestamp;
+        }
+        validationCode = typeof ptx.getValidationcode === 'function' ? ptx.getValidationcode() : ptx.validationCode;
       } catch (_) {}
       res.json({ ok: true, tx: { txId, timestamp, validationCode } });
     } else {
       res.json({ ok: true, base64: buf.toString('base64') });
     }
   } catch (err) {
+    if (req.log) req.log.error('qscc.txById.error', { error: err.message });
     res.status(500).json({ ok: false, error: err.message });
   }
 });
@@ -153,14 +204,20 @@ app.get('/api/network/blockByTx/:txId', async (req, res) => {
     const contract = await getContractForMSPAndCC(msp, 'qscc');
     const channel = process.env.FABRIC_CHANNEL;
     const buf = await contract.evaluateTransaction('GetBlockByTxID', channel, req.params.txId);
-    if (protos && protos.common && protos.common.Block && protos.common.Block.decode) {
-      const block = protos.common.Block.decode(buf);
-      const number = block.header && block.header.number ? block.header.number.toString() : undefined;
+    const { common } = getNs();
+    const block = tryDeserialize(common.Block, buf);
+    if (block) {
+      let number;
+      try {
+        const hdr = typeof block.getHeader === 'function' ? block.getHeader() : null;
+        number = hdr && typeof hdr.getNumber === 'function' ? String(hdr.getNumber()) : undefined;
+      } catch (_) {}
       res.json({ ok: true, blockNumber: number });
     } else {
       res.json({ ok: true, base64: buf.toString('base64') });
     }
   } catch (err) {
+    if (req.log) req.log.error('qscc.blockByTx.error', { error: err.message });
     res.status(500).json({ ok: false, error: err.message });
   }
 });
@@ -192,9 +249,10 @@ app.get('/api/explorer/summary', async (req, res) => {
     const channel = process.env.FABRIC_CHANNEL;
     const infoBuf = await qscc.evaluateTransaction('GetChainInfo', channel);
     let height = undefined;
-    if (protos && protos.common && protos.common.BlockchainInfo && protos.common.BlockchainInfo.decode) {
-      const info = protos.common.BlockchainInfo.decode(infoBuf);
-      height = info.height ? info.height.toString() : undefined;
+    {
+      const { common } = getNs();
+      const info = tryDeserialize(common.BlockchainInfo, infoBuf);
+      if (info) height = typeof info.getHeight === 'function' ? String(info.getHeight()) : (info.height ? String(info.height) : undefined);
     }
 
     // Latest blocks
@@ -205,16 +263,28 @@ app.get('/api/explorer/summary', async (req, res) => {
     for (let n = start; n >= min; n--) {
       try {
         const bbuf = await qscc.evaluateTransaction('GetBlockByNumber', channel, String(n));
-        if (protos && protos.common && protos.common.Block && protos.common.Block.decode) {
-          const block = protos.common.Block.decode(bbuf);
-          const number = block.header && block.header.number ? block.header.number.toString() : String(n);
+        const { common } = getNs();
+        const block = tryDeserialize(common.Block, bbuf);
+        if (block) {
+          let number = String(n);
           const txs = [];
           try {
-            const envs = block.data.data || [];
+            const hdr = typeof block.getHeader === 'function' ? block.getHeader() : null;
+            if (hdr && typeof hdr.getNumber === 'function') number = String(hdr.getNumber());
+            const data = typeof block.getData === 'function' ? block.getData() : null;
+            const envs = data && typeof data.getDataList === 'function' ? data.getDataList() : [];
             for (const env of envs) {
-              const payload = protos.common.Payload.decode(env.payload);
-              const chdr = protos.common.ChannelHeader.decode(payload.header.channel_header);
-              txs.push({ txId: chdr.tx_id, timestamp: chdr.timestamp, type: chdr.typeString || chdr.type });
+              const payload = tryDeserialize(common.Payload, env.getPayload_asU8 ? env.getPayload_asU8() : env.payload);
+              if (!payload) continue;
+              const header = typeof payload.getHeader === 'function' ? payload.getHeader() : null;
+              const chdrBytes = header && typeof header.getChannelHeader_asU8 === 'function' ? header.getChannelHeader_asU8() : null;
+              const chdr = tryDeserialize(common.ChannelHeader, chdrBytes);
+              if (chdr) {
+                const txId = typeof chdr.getTxId === 'function' ? chdr.getTxId() : chdr.tx_id;
+                const timestamp = typeof chdr.getTimestamp === 'function' && chdr.getTimestamp() ? chdr.getTimestamp().toDate().toISOString() : chdr.timestamp;
+                const type = typeof chdr.getType === 'function' ? chdr.getType() : chdr.type;
+                txs.push({ txId, timestamp, type });
+              }
             }
           } catch (_) {}
           latestBlocks.push({ number, txCount: txs.length, txs });
@@ -250,15 +320,20 @@ app.get('/api/explorer/summary', async (req, res) => {
     for (const ev of limited) {
       try {
         const btx = await qscc.evaluateTransaction('GetBlockByTxID', channel, ev.txId);
-        if (protos && protos.common && protos.common.Block && protos.common.Block.decode) {
-          const block = protos.common.Block.decode(btx);
-          ev.blockNumber = block.header && block.header.number ? block.header.number.toString() : undefined;
+        const { common } = getNs();
+        const block = tryDeserialize(common.Block, btx);
+        if (block) {
+          try {
+            const hdr = typeof block.getHeader === 'function' ? block.getHeader() : null;
+            ev.blockNumber = hdr && typeof hdr.getNumber === 'function' ? String(hdr.getNumber()) : undefined;
+          } catch (_) {}
         }
       } catch (_) {}
     }
 
     res.json({ ok: true, network: { org, peers: peersCount, orderers: orderersCount, height }, latestBlocks, recentEvents: limited });
   } catch (err) {
+    if (req.log) req.log.error('explorer.summary.error', { error: err.message });
     res.status(500).json({ ok: false, error: err.message });
   }
 });
@@ -278,6 +353,5 @@ function resolveMSP(req) {
 }
 
 app.listen(port, () => {
-  // eslint-disable-next-line no-console
-  console.log(`Fabric Gateway API listening on port ${port}`);
+  logger.info('gateway.start', { port });
 });

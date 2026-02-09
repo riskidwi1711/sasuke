@@ -32,9 +32,9 @@ joinchannel: ## Join peers to channel
 	@echo "Joining peers to channel..."
 	@./scripts/network.sh joinChannel
 
-deploycc: ## Deploy chaincode (use: make deploycc CC_NAME=general)
+deploycc: ## Deploy chaincode (use: make deploycc CC_NAME=asset-contract)
 	@echo "Deploying chaincode..."
-	@./scripts/network.sh deployCC -ccn $(or $(CC_NAME),general) -ccv $(or $(CC_VERSION),1.0) -ccp $(or $(CC_PATH),./chaincode/general) -ccl $(or $(CC_LANG),golang)
+	@./scripts/network.sh deployCC -ccn $(or $(CC_NAME),asset-contract) -ccv $(or $(CC_VERSION),1.0) -ccp $(or $(CC_PATH),./chaincode/asset-contract) -ccl $(or $(CC_LANG),golang)
 
 deploycc_combined: ## Deploy combined v2 chaincode (default CC_NAME=chaincode_v2)
 	@echo "Deploying combined v2 chaincode..."
@@ -42,7 +42,7 @@ deploycc_combined: ## Deploy combined v2 chaincode (default CC_NAME=chaincode_v2
 
 upgradecc: ## Upgrade chaincode to version 2.0 with sequence 2 (use: make upgradecc)
 	@echo "Upgrading chaincode to version 2.0..."
-	@./scripts/network.sh deployCC -ccn $(or $(CC_NAME),general) -ccv 2.0 -ccs 2 -ccp $(or $(CC_PATH),./chaincode/general) -ccl $(or $(CC_LANG),golang)
+	@./scripts/network.sh deployCC -ccn $(or $(CC_NAME),asset-contract) -ccv 2.0 -ccs 2 -ccp $(or $(CC_PATH),./chaincode/asset-contract) -ccl $(or $(CC_LANG),golang)
 
 upgradecc_combined: ## Upgrade combined v2 chaincode to version 2.0 seq 2 (override vars as needed)
 	@echo "Upgrading combined v2 chaincode..."
@@ -50,11 +50,11 @@ upgradecc_combined: ## Upgrade combined v2 chaincode to version 2.0 seq 2 (overr
 
 test: ## Run chaincode tests (Go)
 	@echo "Testing chaincode (Go)..."
-	@cd chaincode/general && if [ -f go.mod ]; then go test ./... || true; else echo "No Go tests found"; fi
+	@cd $(or $(CC_PATH),./chaincode/asset-contract) && if [ -f go.mod ]; then go test ./... || true; else echo "No Go tests found"; fi
 
 install-deps: ## Install chaincode dependencies (Go)
 	@echo "Installing chaincode dependencies (Go modules)..."
-	@cd chaincode/general && if [ -f go.mod ]; then (go mod download || true); else echo "No Go modules to install"; fi
+	@cd $(or $(CC_PATH),./chaincode/asset-contract) && if [ -f go.mod ]; then (go mod download || true); else echo "No Go modules to install"; fi
 
 status: ## Show network status
 	@echo "Network Status:"

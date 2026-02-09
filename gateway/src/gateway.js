@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { Gateway, Wallets } = require('fabric-network');
+const logger = require('./logger');
 
 // cache per-org and chaincode
 const cache = new Map(); // key: `${mspId}:${ccName}`, value: { gateway, contract }
@@ -23,7 +24,10 @@ async function getContractForMSP(mspId) {
 
 async function getContractForMSPAndCC(mspId, ccName) {
   const key = `${mspId}:${ccName}`;
-  if (cache.has(key)) return cache.get(key).contract;
+  if (cache.has(key)) {
+    logger.debug('gateway.cache.hit', { mspId, ccName });
+    return cache.get(key).contract;
+  }
 
   const channelName = process.env.FABRIC_CHANNEL;
   const chaincodeName = process.env.FABRIC_CHAINCODE;
@@ -39,6 +43,7 @@ async function getContractForMSPAndCC(mspId, ccName) {
   const identityLabel = getOrgEnv(mspId, 'IDENTITY', 'appUser');
   if (!ccpPath) throw new Error(`Missing CCP for ${mspId}: FABRIC_ORG_${mspId}_CCP_PATH`);
 
+  logger.info('gateway.connect.begin', { mspId, ccName, channelName, identityLabel, ccpPath, discoveryEnabled, discoveryAsLocalhost });
   const ccp = JSON.parse(fs.readFileSync(ccpPath, 'utf8'));
   const wallet = await Wallets.newFileSystemWallet(walletPath);
 
@@ -56,6 +61,7 @@ async function getContractForMSPAndCC(mspId, ccName) {
       type: 'X.509',
     };
     await wallet.put(identityLabel, identity);
+    logger.info('gateway.identity.imported', { mspId, identityLabel });
   }
 
   const gateway = new Gateway();
@@ -67,16 +73,18 @@ async function getContractForMSPAndCC(mspId, ccName) {
 
   const network = await gateway.getNetwork(channelName);
   const contract = network.getContract(ccName);
+  logger.info('gateway.contract.ready', { mspId, ccName, channelName });
 
   cache.set(key, { gateway, contract });
   return contract;
 }
 
 async function disconnectAll() {
-  for (const [mspId, { gateway }] of cache.entries()) {
-    try { await gateway.disconnect(); } catch (_) {}
-    cache.delete(mspId);
+  for (const [key, { gateway }] of cache.entries()) {
+    try { await gateway.disconnect(); } catch (e) { logger.warn('gateway.disconnect.error', { error: e && e.message }); }
+    cache.delete(key);
   }
+  logger.info('gateway.disconnectAll.done');
 }
 
 module.exports = { getContractForMSP, getContractForMSPAndCC, disconnectAll, getOrgList };
