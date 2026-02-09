@@ -104,7 +104,7 @@ app.get('/api/assets/:id', async (req, res) => {
 app.get('/api/network/chaininfo', async (req, res) => {
   try {
     const msp = resolveMSP(req);
-    const contract = await getContractForMSPAndCC(msp, 'qscc');
+    const contract = await getContractForMSPAndCC(msp, 'qscc', { discoveryEnabled: false });
     const channel = process.env.FABRIC_CHANNEL;
     const buf = await contract.evaluateTransaction('GetChainInfo', channel);
     const { common } = getNs();
@@ -126,7 +126,7 @@ app.get('/api/network/chaininfo', async (req, res) => {
 app.get('/api/network/block/:num', async (req, res) => {
   try {
     const msp = resolveMSP(req);
-    const contract = await getContractForMSPAndCC(msp, 'qscc');
+    const contract = await getContractForMSPAndCC(msp, 'qscc', { discoveryEnabled: false });
     const channel = process.env.FABRIC_CHANNEL;
     const buf = await contract.evaluateTransaction('GetBlockByNumber', channel, String(req.params.num));
     const { common } = getNs();
@@ -167,7 +167,7 @@ app.get('/api/network/block/:num', async (req, res) => {
 app.get('/api/network/tx/:txId', async (req, res) => {
   try {
     const msp = resolveMSP(req);
-    const contract = await getContractForMSPAndCC(msp, 'qscc');
+    const contract = await getContractForMSPAndCC(msp, 'qscc', { discoveryEnabled: false });
     const channel = process.env.FABRIC_CHANNEL;
     const buf = await contract.evaluateTransaction('GetTransactionByID', channel, req.params.txId);
     const { common, peerNs } = getNs();
@@ -245,7 +245,7 @@ app.get('/api/explorer/summary', async (req, res) => {
     } catch (_) {}
 
     // Chain height
-    const qscc = await getContractForMSPAndCC(msp, 'qscc');
+    const qscc = await getContractForMSPAndCC(msp, 'qscc', { discoveryEnabled: false });
     const channel = process.env.FABRIC_CHANNEL;
     const infoBuf = await qscc.evaluateTransaction('GetChainInfo', channel);
     let height = undefined;
