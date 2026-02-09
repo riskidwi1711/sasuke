@@ -268,8 +268,8 @@ chaincodeInvokeInit() {
 }
 
 # Main execution
-# Add local bin to PATH
-export PATH=${PWD}/bin:$PATH
+# Add local bin and Go to PATH
+export PATH=${PWD}/bin:/usr/local/go/bin:$PATH
 export FABRIC_CFG_PATH=$PWD/config
 export CORE_PEER_TLS_ENABLED=true
 

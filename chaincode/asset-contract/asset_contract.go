@@ -229,7 +229,7 @@ func (c *AssetContract) CompleteMaintenance(ctx contractapi.TransactionContextIn
 
     k := assetKey(assetID)
     st, err := c.getAsset(ctx, k)
-    if err != nil { return nil, err }
+    if err != nil { return "", err }
 
     d := strings.TrimSpace(date)
     if d == "" { d = nowRFC3339(ctx) }
@@ -239,11 +239,11 @@ func (c *AssetContract) CompleteMaintenance(ctx contractapi.TransactionContextIn
     st.Status = StatusActive
     st.UpdatedAt = d
     sb, _ := json.Marshal(st)
-    if err := ctx.GetStub().PutState(k, sb); err != nil { return nil, err }
+    if err := ctx.GetStub().PutState(k, sb); err != nil { return "", err }
 
     evKey := maintPrefixFor(assetID) + d
     lb, _ := json.Marshal(log)
-    if err := ctx.GetStub().PutState(evKey, lb); err != nil { return nil, err }
+    if err := ctx.GetStub().PutState(evKey, lb); err != nil { return "", err }
     _ = ctx.GetStub().SetEvent("CompleteMaintenance", lb)
     return "OK", nil
 }

@@ -116,10 +116,10 @@ function networkDown() {
     # Clean up volumes
     docker volume prune -f 2>/dev/null || true
 
-    # Remove generated artifacts
+    # Remove generated artifacts (use Docker to handle root-owned CA files)
     echo "Cleaning up generated artifacts..."
-    rm -rf organizations/peerOrganizations organizations/ordererOrganizations || true
-    rm -rf channel-artifacts/* || true
+    docker run --rm -v "${PWD}:/work" alpine sh -c \
+        "rm -rf /work/organizations/peerOrganizations /work/organizations/ordererOrganizations /work/channel-artifacts/*" 2>/dev/null || true
 
     echo -e "${GREEN}Network stopped and cleaned up!${NC}"
     # Re-enable 'exit on error' for the rest of the script
@@ -237,6 +237,67 @@ function joinChannel() {
     updateAnchorPeers
 }
 
+function setAnchorPeer() {
+    local ORG_MSP=$1
+    local ANCHOR_HOST=$2
+    local ANCHOR_PORT=$3
+    local ORDERER_CA=${PWD}/organizations/ordererOrganizations/example.com/orderers/orderer.example.com/msp/tlscacerts/tlsca.example.com-cert.pem
+
+    echo -e "${YELLOW}Setting anchor peer for ${ORG_MSP}: ${ANCHOR_HOST}:${ANCHOR_PORT}${NC}"
+
+    # Fetch latest config block
+    peer channel fetch config channel-artifacts/config_block.pb \
+        -o localhost:7050 --ordererTLSHostnameOverride orderer.example.com \
+        -c ${CHANNEL_NAME} --tls --cafile "$ORDERER_CA"
+
+    # Decode config block to JSON
+    configtxlator proto_decode --input channel-artifacts/config_block.pb \
+        --type common.Block --output channel-artifacts/config_block.json
+
+    # Extract config from block
+    jq '.data.data[0].payload.data.config' channel-artifacts/config_block.json > channel-artifacts/config.json
+
+    # Create modified config with anchor peer
+    jq --arg msp "$ORG_MSP" --arg host "$ANCHOR_HOST" --argjson port "$ANCHOR_PORT" \
+        '.channel_group.groups.Application.groups[$msp].values += {"AnchorPeers":{"mod_policy":"Admins","value":{"anchor_peers":[{"host":$host,"port":$port}]},"version":"0"}}' \
+        channel-artifacts/config.json > channel-artifacts/modified_config.json
+
+    # Encode original config to protobuf
+    configtxlator proto_encode --input channel-artifacts/config.json \
+        --type common.Config --output channel-artifacts/original_config.pb
+
+    # Encode modified config to protobuf
+    configtxlator proto_encode --input channel-artifacts/modified_config.json \
+        --type common.Config --output channel-artifacts/modified_config.pb
+
+    # Compute config update delta
+    configtxlator compute_update --channel_id ${CHANNEL_NAME} \
+        --original channel-artifacts/original_config.pb \
+        --updated channel-artifacts/modified_config.pb \
+        --output channel-artifacts/config_update.pb 2>&1 || {
+        echo -e "${YELLOW}No anchor peer update needed for ${ORG_MSP} (already set)${NC}"
+        return 0
+    }
+
+    # Wrap update in envelope
+    configtxlator proto_decode --input channel-artifacts/config_update.pb \
+        --type common.ConfigUpdate --output channel-artifacts/config_update.json
+
+    echo '{"payload":{"header":{"channel_header":{"channel_id":"'${CHANNEL_NAME}'","type":2}},"data":{"config_update":'$(cat channel-artifacts/config_update.json)'}}}' | \
+        jq . > channel-artifacts/config_update_envelope.json
+
+    configtxlator proto_encode --input channel-artifacts/config_update_envelope.json \
+        --type common.Envelope --output channel-artifacts/config_update_envelope.pb
+
+    # Submit config update
+    peer channel update -f channel-artifacts/config_update_envelope.pb \
+        -c ${CHANNEL_NAME} -o localhost:7050 \
+        --ordererTLSHostnameOverride orderer.example.com \
+        --tls --cafile "$ORDERER_CA"
+
+    echo -e "${GREEN}Anchor peer set for ${ORG_MSP}${NC}"
+}
+
 function updateAnchorPeers() {
     echo -e "${GREEN}Updating anchor peers...${NC}"
 
@@ -250,14 +311,25 @@ function updateAnchorPeers() {
     export CORE_PEER_TLS_ROOTCERT_FILE=${PWD}/organizations/peerOrganizations/org1.example.com/peers/peer0.org1.example.com/tls/ca.crt
     export CORE_PEER_MSPCONFIGPATH=${PWD}/organizations/peerOrganizations/org1.example.com/users/Admin@org1.example.com/msp
     export CORE_PEER_ADDRESS=localhost:7051
+    setAnchorPeer "Org1MSP" "peer0.org1.example.com" 7051
 
-    peer channel fetch config channel-artifacts/config_block.pb -o localhost:7050 \
-        --ordererTLSHostnameOverride orderer.example.com -c ${CHANNEL_NAME} \
-        --tls --cafile ${PWD}/organizations/ordererOrganizations/example.com/orderers/orderer.example.com/msp/tlscacerts/tlsca.example.com-cert.pem
+    # Update Org2 anchor peer
+    export CORE_PEER_LOCALMSPID="Org2MSP"
+    export CORE_PEER_TLS_ROOTCERT_FILE=${PWD}/organizations/peerOrganizations/org2.example.com/peers/peer0.org2.example.com/tls/ca.crt
+    export CORE_PEER_MSPCONFIGPATH=${PWD}/organizations/peerOrganizations/org2.example.com/users/Admin@org2.example.com/msp
+    export CORE_PEER_ADDRESS=localhost:9051
+    setAnchorPeer "Org2MSP" "peer0.org2.example.com" 9051
 
-    # Note: In this template we only fetch config for brevity.
-    # If needed, generate and apply anchor peer updates per org using configtxgen.
-    echo -e "${GREEN}Anchor peers update step completed (no-op)${NC}"
+    # Update Org3 anchor peer (if exists)
+    if [ -d "${PWD}/organizations/peerOrganizations/org3.example.com" ]; then
+        export CORE_PEER_LOCALMSPID="Org3MSP"
+        export CORE_PEER_TLS_ROOTCERT_FILE=${PWD}/organizations/peerOrganizations/org3.example.com/peers/peer0.org3.example.com/tls/ca.crt
+        export CORE_PEER_MSPCONFIGPATH=${PWD}/organizations/peerOrganizations/org3.example.com/users/Admin@org3.example.com/msp
+        export CORE_PEER_ADDRESS=localhost:11051
+        setAnchorPeer "Org3MSP" "peer0.org3.example.com" 11051
+    fi
+
+    echo -e "${GREEN}Anchor peers update completed${NC}"
 }
 
 function deployChaincode() {

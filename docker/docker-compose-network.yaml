@@ -56,6 +56,7 @@ services:
     container_name: peer0.org3.example.com
     image: hyperledger/fabric-peer:${FABRIC_VERSION}
     environment:
+      - FABRIC_CFG_PATH=/etc/hyperledger/peercfg
       - FABRIC_LOGGING_SPEC=${PEER_LOGGING_LEVEL}
       - CORE_PEER_TLS_ENABLED=true
       - CORE_PEER_PROFILE_ENABLED=false
@@ -75,11 +76,12 @@ services:
       - CORE_METRICS_PROVIDER=prometheus
       - CHAINCODE_AS_A_SERVICE_BUILDER_CONFIG={"peername":"peer0org3"}
       - CORE_CHAINCODE_EXECUTETIMEOUT=300s
-      - CORE_VM_ENDPOINT=unix:///host/var/run/docker.sock
+      - CORE_VM_ENDPOINT=unix:///var/run/docker.sock
       - CORE_VM_DOCKER_HOSTCONFIG_NETWORKMODE=${NETWORK_NAME}
     volumes:
-      - /var/run/docker.sock:/host/var/run/docker.sock
+      - /var/run/docker.sock:/var/run/docker.sock
       - ../organizations/peerOrganizations/org3.example.com/peers/peer0.org3.example.com:/etc/hyperledger/fabric
+      - ../config/core.yaml:/etc/hyperledger/peercfg/core.yaml
       - peer0.org3.example.com:/var/hyperledger/production
     working_dir: /root
     command: peer node start
@@ -93,6 +95,7 @@ services:
     container_name: peer0.org1.example.com
     image: hyperledger/fabric-peer:${FABRIC_VERSION}
     environment:
+      - FABRIC_CFG_PATH=/etc/hyperledger/peercfg
       - FABRIC_LOGGING_SPEC=${PEER_LOGGING_LEVEL}
       - CORE_PEER_TLS_ENABLED=true
       - CORE_PEER_PROFILE_ENABLED=false
@@ -112,11 +115,12 @@ services:
       - CORE_METRICS_PROVIDER=prometheus
       - CHAINCODE_AS_A_SERVICE_BUILDER_CONFIG={"peername":"peer0org1"}
       - CORE_CHAINCODE_EXECUTETIMEOUT=300s
-      - CORE_VM_ENDPOINT=unix:///host/var/run/docker.sock
+      - CORE_VM_ENDPOINT=unix:///var/run/docker.sock
       - CORE_VM_DOCKER_HOSTCONFIG_NETWORKMODE=${NETWORK_NAME}
     volumes:
-      - /var/run/docker.sock:/host/var/run/docker.sock
+      - /var/run/docker.sock:/var/run/docker.sock
       - ../organizations/peerOrganizations/org1.example.com/peers/peer0.org1.example.com:/etc/hyperledger/fabric
+      - ../config/core.yaml:/etc/hyperledger/peercfg/core.yaml
       - peer0.org1.example.com:/var/hyperledger/production
     working_dir: /root
     command: peer node start
@@ -130,6 +134,7 @@ services:
     container_name: peer1.org1.example.com
     image: hyperledger/fabric-peer:${FABRIC_VERSION}
     environment:
+      - FABRIC_CFG_PATH=/etc/hyperledger/peercfg
       - FABRIC_LOGGING_SPEC=${PEER_LOGGING_LEVEL}
       - CORE_PEER_TLS_ENABLED=true
       - CORE_PEER_PROFILE_ENABLED=false
@@ -149,11 +154,12 @@ services:
       - CORE_METRICS_PROVIDER=prometheus
       - CHAINCODE_AS_A_SERVICE_BUILDER_CONFIG={"peername":"peer1org1"}
       - CORE_CHAINCODE_EXECUTETIMEOUT=300s
-      - CORE_VM_ENDPOINT=unix:///host/var/run/docker.sock
+      - CORE_VM_ENDPOINT=unix:///var/run/docker.sock
       - CORE_VM_DOCKER_HOSTCONFIG_NETWORKMODE=${NETWORK_NAME}
     volumes:
-      - /var/run/docker.sock:/host/var/run/docker.sock
+      - /var/run/docker.sock:/var/run/docker.sock
       - ../organizations/peerOrganizations/org1.example.com/peers/peer1.org1.example.com:/etc/hyperledger/fabric
+      - ../config/core.yaml:/etc/hyperledger/peercfg/core.yaml
       - peer1.org1.example.com:/var/hyperledger/production
     working_dir: /root
     command: peer node start
@@ -167,6 +173,7 @@ services:
     container_name: peer0.org2.example.com
     image: hyperledger/fabric-peer:${FABRIC_VERSION}
     environment:
+      - FABRIC_CFG_PATH=/etc/hyperledger/peercfg
       - FABRIC_LOGGING_SPEC=${PEER_LOGGING_LEVEL}
       - CORE_PEER_TLS_ENABLED=true
       - CORE_PEER_PROFILE_ENABLED=false
@@ -186,11 +193,12 @@ services:
       - CORE_METRICS_PROVIDER=prometheus
       - CHAINCODE_AS_A_SERVICE_BUILDER_CONFIG={"peername":"peer0org2"}
       - CORE_CHAINCODE_EXECUTETIMEOUT=300s
-      - CORE_VM_ENDPOINT=unix:///host/var/run/docker.sock
+      - CORE_VM_ENDPOINT=unix:///var/run/docker.sock
       - CORE_VM_DOCKER_HOSTCONFIG_NETWORKMODE=${NETWORK_NAME}
     volumes:
-      - /var/run/docker.sock:/host/var/run/docker.sock
+      - /var/run/docker.sock:/var/run/docker.sock
       - ../organizations/peerOrganizations/org2.example.com/peers/peer0.org2.example.com:/etc/hyperledger/fabric
+      - ../config/core.yaml:/etc/hyperledger/peercfg/core.yaml
       - peer0.org2.example.com:/var/hyperledger/production
     working_dir: /root
     command: peer node start
@@ -204,6 +212,7 @@ services:
     container_name: peer1.org2.example.com
     image: hyperledger/fabric-peer:${FABRIC_VERSION}
     environment:
+      - FABRIC_CFG_PATH=/etc/hyperledger/peercfg
       - FABRIC_LOGGING_SPEC=${PEER_LOGGING_LEVEL}
       - CORE_PEER_TLS_ENABLED=true
       - CORE_PEER_PROFILE_ENABLED=false
@@ -223,11 +232,12 @@ services:
       - CORE_METRICS_PROVIDER=prometheus
       - CHAINCODE_AS_A_SERVICE_BUILDER_CONFIG={"peername":"peer1org2"}
       - CORE_CHAINCODE_EXECUTETIMEOUT=300s
-      - CORE_VM_ENDPOINT=unix:///host/var/run/docker.sock
+      - CORE_VM_ENDPOINT=unix:///var/run/docker.sock
       - CORE_VM_DOCKER_HOSTCONFIG_NETWORKMODE=${NETWORK_NAME}
     volumes:
-      - /var/run/docker.sock:/host/var/run/docker.sock
+      - /var/run/docker.sock:/var/run/docker.sock
       - ../organizations/peerOrganizations/org2.example.com/peers/peer1.org2.example.com:/etc/hyperledger/fabric
+      - ../config/core.yaml:/etc/hyperledger/peercfg/core.yaml
       - peer1.org2.example.com:/var/hyperledger/production
     working_dir: /root
     command: peer node start

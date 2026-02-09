@@ -12,6 +12,14 @@ up: ## Start the network with all components
 	@echo "Starting Fabric network with CA, IPFS, and Explorer..."
 	@./scripts/network.sh up -ca -ipfs -explorer
 
+up-no-explorer: ## Start network without Explorer (for setup ordering)
+	@echo "Starting Fabric network with CA and IPFS..."
+	@./scripts/network.sh up -ca -ipfs
+
+up-explorer: ## Start Explorer separately (peers must be ready)
+	@echo "Starting Hyperledger Explorer..."
+	@docker compose --env-file .env -f docker/docker-compose-explorer.yaml up -d
+
 up-basic: ## Start only Fabric network
 	@echo "Starting Fabric network..."
 	@./scripts/network.sh up
@@ -50,11 +58,11 @@ upgradecc_combined: ## Upgrade combined v2 chaincode to version 2.0 seq 2 (overr
 
 test: ## Run chaincode tests (Go)
 	@echo "Testing chaincode (Go)..."
-	@cd chaincode/general && if [ -f go.mod ]; then go test ./... || true; else echo "No Go tests found"; fi
+	@cd chaincode/asset-contract && if [ -f go.mod ]; then go test ./... || true; else echo "No Go tests found"; fi
 
 install-deps: ## Install chaincode dependencies (Go)
 	@echo "Installing chaincode dependencies (Go modules)..."
-	@cd chaincode/general && if [ -f go.mod ]; then (go mod download || true); else echo "No Go modules to install"; fi
+	@export PATH=$$PATH:/usr/local/go/bin && cd chaincode/asset-contract && if [ -f go.mod ]; then (go mod download || true); else echo "No Go modules to install"; fi
 
 status: ## Show network status
 	@echo "Network Status:"
@@ -75,7 +83,7 @@ logs-explorer: ## Show logs for Explorer
 clean: ## Clean all generated files and containers
 	@echo "Cleaning all generated files..."
 	@./scripts/network.sh down
-	@rm -rf organizations/ channel-artifacts/
+	@docker run --rm -v $(PWD):/work alpine sh -c "rm -rf /work/organizations /work/channel-artifacts"
 	@rm -f *.tar.gz log.txt
 
 backup: ## Backup crypto material and chaincode
@@ -86,14 +94,18 @@ backup: ## Backup crypto material and chaincode
 setup: ## Complete setup (generate, up, channel, deploycc)
 	@echo "Running complete setup..."
 	@make generate
-	@make up
+	@make up-no-explorer
+	@echo "Waiting for peers to be ready..."
 	@sleep 10
 	@make createchannel
 	@sleep 3
 	@make joinchannel
 	@sleep 3
 	@make install-deps
-	@make deploycc
+	@make deploycc CC_NAME=asset-contract CC_PATH=./chaincode/asset-contract
+	@echo "Starting Explorer (peers are now ready)..."
+	@make up-explorer
+	@sleep 5
 	@echo "Setup completed!"
 
 addorg3: ## Incrementally add Org3 (no reset): crypto, peer up, channel update, join, install CC
