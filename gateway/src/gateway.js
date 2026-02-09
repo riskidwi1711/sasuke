@@ -22,8 +22,11 @@ async function getContractForMSP(mspId) {
   return getContractForMSPAndCC(mspId, appCC);
 }
 
-async function getContractForMSPAndCC(mspId, ccName) {
-  const key = `${mspId}:${ccName}`;
+async function getContractForMSPAndCC(mspId, ccName, opts = undefined) {
+  const discoveryEnabledEnv = (process.env.FABRIC_DISCOVERY_ENABLED || 'true') === 'true';
+  const discoveryEnabled = (opts && Object.prototype.hasOwnProperty.call(opts, 'discoveryEnabled')) ? !!opts.discoveryEnabled : discoveryEnabledEnv;
+  const discoveryKey = discoveryEnabled ? 'disc' : 'nodisc';
+  const key = `${mspId}:${ccName}:${discoveryKey}`;
   if (cache.has(key)) {
     logger.debug('gateway.cache.hit', { mspId, ccName });
     return cache.get(key).contract;
@@ -31,14 +34,14 @@ async function getContractForMSPAndCC(mspId, ccName) {
 
   const channelName = process.env.FABRIC_CHANNEL;
   const chaincodeName = process.env.FABRIC_CHAINCODE;
-  const discoveryEnabled = (process.env.FABRIC_DISCOVERY_ENABLED || 'true') === 'true';
   const discoveryAsLocalhost = (process.env.FABRIC_DISCOVERY_ASLOCALHOST || 'true') === 'true';
 
   if (!channelName || !ccName) {
     throw new Error('Missing required env: FABRIC_CHANNEL, FABRIC_CHAINCODE');
   }
 
-  const ccpPath = getOrgEnv(mspId, 'CCP_PATH');
+  const ccpPathRaw = getOrgEnv(mspId, 'CCP_PATH');
+  const ccpPath = ccpPathRaw && (path.isAbsolute(ccpPathRaw) ? ccpPathRaw : path.resolve(__dirname, '..', ccpPathRaw));
   const walletPath = getOrgEnv(mspId, 'WALLET_PATH', path.join(__dirname, '..', 'wallet', mspId));
   const identityLabel = getOrgEnv(mspId, 'IDENTITY', 'appUser');
   if (!ccpPath) throw new Error(`Missing CCP for ${mspId}: FABRIC_ORG_${mspId}_CCP_PATH`);
@@ -48,8 +51,10 @@ async function getContractForMSPAndCC(mspId, ccName) {
   const wallet = await Wallets.newFileSystemWallet(walletPath);
 
   if (!await wallet.get(identityLabel)) {
-    const certPath = getOrgEnv(mspId, 'CERT_PATH');
-    const keyPath = getOrgEnv(mspId, 'KEY_PATH');
+    const certPathRaw = getOrgEnv(mspId, 'CERT_PATH');
+    const keyPathRaw = getOrgEnv(mspId, 'KEY_PATH');
+    const certPath = certPathRaw && (path.isAbsolute(certPathRaw) ? certPathRaw : path.resolve(__dirname, '..', certPathRaw));
+    const keyPath = keyPathRaw && (path.isAbsolute(keyPathRaw) ? keyPathRaw : path.resolve(__dirname, '..', keyPathRaw));
     if (!certPath || !keyPath) {
       throw new Error(`Identity ${identityLabel} for ${mspId} not found in wallet and CERT/KEY env not provided`);
     }
@@ -65,11 +70,25 @@ async function getContractForMSPAndCC(mspId, ccName) {
   }
 
   const gateway = new Gateway();
-  await gateway.connect(ccp, {
-    wallet,
-    identity: identityLabel,
-    discovery: { enabled: discoveryEnabled, asLocalhost: discoveryAsLocalhost },
-  });
+  try {
+    await gateway.connect(ccp, {
+      wallet,
+      identity: identityLabel,
+      discovery: { enabled: discoveryEnabled, asLocalhost: discoveryAsLocalhost },
+    });
+  } catch (e) {
+    const msg = (e && e.message) || '';
+    if (discoveryEnabled && /DiscoveryService|access denied|discovery error/i.test(msg)) {
+      logger.warn('gateway.connect.retryNoDiscovery', { mspId, ccName, reason: msg });
+      await gateway.connect(ccp, {
+        wallet,
+        identity: identityLabel,
+        discovery: { enabled: false, asLocalhost: discoveryAsLocalhost },
+      });
+    } else {
+      throw e;
+    }
+  }
 
   const network = await gateway.getNetwork(channelName);
   const contract = network.getContract(ccName);

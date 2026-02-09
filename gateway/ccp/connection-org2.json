@@ -1,0 +1,36 @@
+{
+  "name": "fabric-network-org2",
+  "version": "1.0.0",
+  "client": {
+    "organization": "Org2MSP",
+    "connection": { "timeout": { "peer": { "endorser": "300" }, "orderer": "300" } }
+  },
+  "organizations": {
+    "Org2MSP": {
+      "mspid": "Org2MSP",
+      "peers": ["peer0.org2.example.com"]
+    }
+  },
+  "channels": {
+    "mychannel": {
+      "peers": {
+        "peer0.org2.example.com": {}
+      },
+      "orderers": ["orderer.example.com"]
+    }
+  },
+  "orderers": {
+    "orderer.example.com": {
+      "url": "grpcs://localhost:7050",
+      "grpcOptions": { "ssl-target-name-override": "orderer.example.com", "hostnameOverride": "orderer.example.com" },
+      "tlsCACerts": { "path": "../organizations/ordererOrganizations/example.com/orderers/orderer.example.com/msp/tlscacerts/tlsca.example.com-cert.pem" }
+    }
+  },
+  "peers": {
+    "peer0.org2.example.com": {
+      "url": "grpcs://localhost:9051",
+      "grpcOptions": { "ssl-target-name-override": "peer0.org2.example.com", "hostnameOverride": "peer0.org2.example.com" },
+      "tlsCACerts": { "path": "../organizations/peerOrganizations/org2.example.com/peers/peer0.org2.example.com/tls/ca.crt" }
+    }
+  }
+}
