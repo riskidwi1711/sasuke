@@ -3,8 +3,8 @@ set -euo pipefail
 
 # Chaincode deployment script
 CHANNEL_NAME=${1:-"mychannel"}
-CC_NAME=${2:-"general"}
-CC_SRC_PATH=${3:-"../chaincode/general"}
+CC_NAME=${2:-"asset-contract"}
+CC_SRC_PATH=${3:-"../chaincode/asset-contract"}
 CC_VERSION=${4:-"1.0"}
 CC_SEQUENCE=${5:-"1"}
 CC_INIT_FCN=${6:-"NA"}

@@ -58,7 +58,7 @@ function printHelp() {
     echo
     echo "  Example:"
     echo "    network.sh up -ca -ipfs -explorer"
-    echo "    network.sh deployCC -ccn general -ccv 1.0 -ccp ./chaincode/general -ccl golang"
+    echo "    network.sh deployCC -ccn asset-contract -ccv 1.0 -ccp ./chaincode/asset-contract -ccl golang"
 }
 
 function networkUp() {
@@ -336,9 +336,9 @@ function deployChaincode() {
     echo -e "${GREEN}Deploying chaincode...${NC}"
 
     # Set defaults if not provided
-    CC_NAME=${CC_NAME:-"general"}
+    CC_NAME=${CC_NAME:-"asset-contract"}
     CC_VERSION=${CC_VERSION:-"1.0"}
-    CC_SRC_PATH=${CC_SRC_PATH:-"./chaincode/general"}
+    CC_SRC_PATH=${CC_SRC_PATH:-"./chaincode/asset-contract"}
     CC_SEQUENCE=${CC_SEQUENCE:-"1"}
     CC_INIT_FCN=${CC_INIT_FCN:-"NA"}
     CC_END_POLICY=${CC_END_POLICY:-"NA"}
