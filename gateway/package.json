@@ -6,7 +6,8 @@
   "main": "src/server.js",
   "scripts": {
     "api": "node src/server.js",
-    "dev": "nodemon src/server.js"
+    "dev": "nodemon src/server.js",
+    "purge:wallet": "node src/tools/purgeWallet.js"
   },
   "dependencies": {
     "@hyperledger/fabric-protos": "^0.1.6",

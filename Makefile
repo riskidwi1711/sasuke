@@ -1,4 +1,4 @@
-.PHONY: help generate up down restart clean deploycc test
+.PHONY: help generate up down restart clean deploycc test gateway-start gateway-dev purge-wallet
 
 help: ## Show this help
 	@echo "Available commands:"
@@ -40,13 +40,13 @@ deploycc_combined: ## Deploy combined v2 chaincode (default CC_NAME=chaincode_v2
 	@echo "Deploying combined v2 chaincode..."
 	@./scripts/network.sh deployCC -ccn $(or $(CC_NAME),chaincode_v2) -ccv $(or $(CC_VERSION),1.0) -ccp $(or $(CC_PATH),./chaincode/v2) -ccl $(or $(CC_LANG),golang)
 
-upgradecc: ## Upgrade chaincode to version 2.0 with sequence 2 (use: make upgradecc)
+upgradecc: ## Upgrade chaincode (override CC_VERSION/CC_SEQUENCE)
 	@echo "Upgrading chaincode to version 2.0..."
-	@./scripts/network.sh deployCC -ccn $(or $(CC_NAME),asset-contract) -ccv 2.0 -ccs 2 -ccp $(or $(CC_PATH),./chaincode/asset-contract) -ccl $(or $(CC_LANG),golang)
+	@CC_SEQUENCE=$(or $(CC_SEQUENCE),2) ./scripts/network.sh deployCC -ccn $(or $(CC_NAME),asset-contract) -ccv $(or $(CC_VERSION),2.0) -ccp $(or $(CC_PATH),./chaincode/asset-contract) -ccl $(or $(CC_LANG),golang)
 
-upgradecc_combined: ## Upgrade combined v2 chaincode to version 2.0 seq 2 (override vars as needed)
+upgradecc_combined: ## Upgrade combined v2 chaincode (override CC_VERSION/CC_SEQUENCE)
 	@echo "Upgrading combined v2 chaincode..."
-	@./scripts/network.sh deployCC -ccn $(or $(CC_NAME),chaincode_v2) -ccv $(or $(CC_VERSION),2.0) -ccs $(or $(CC_SEQUENCE),2) -ccp $(or $(CC_PATH),./chaincode/v2) -ccl $(or $(CC_LANG),golang)
+	@CC_SEQUENCE=$(or $(CC_SEQUENCE),2) ./scripts/network.sh deployCC -ccn $(or $(CC_NAME),chaincode_v2) -ccv $(or $(CC_VERSION),2.0) -ccp $(or $(CC_PATH),./chaincode/v2) -ccl $(or $(CC_LANG),golang)
 
 test: ## Run chaincode tests (Go)
 	@echo "Testing chaincode (Go)..."
@@ -99,3 +99,21 @@ setup: ## Complete setup (generate, up, channel, deploycc)
 addorg3: ## Incrementally add Org3 (no reset): crypto, peer up, channel update, join, install CC
 	@echo "Adding Org3 incrementally..."
 	@bash scripts/add_org3.sh
+
+# --- Gateway helpers ---
+gateway-start: ## Start gateway API server
+	@echo "Starting gateway API..."
+	@npm --prefix gateway run api
+
+gateway-dev: ## Start gateway in dev (nodemon)
+	@echo "Starting gateway (dev)..."
+	@npm --prefix gateway run dev
+
+purge-wallet: ## Purge gateway wallet identities (use: make purge-wallet MSP=Org1MSP | ALL=true)
+	@echo "Purging gateway wallet identities..."
+	@if [ "$(ALL)" = "true" ]; then \
+		npm --prefix gateway run purge:wallet -- --all; \
+	else \
+		if [ -z "$(MSP)" ]; then echo "Set MSP=<MSP> or ALL=true" && exit 2; fi; \
+		npm --prefix gateway run purge:wallet -- --msp $(MSP); \
+	fi
