@@ -49,24 +49,41 @@ async function getContractForMSPAndCC(mspId, ccName, opts = undefined) {
   logger.info('gateway.connect.begin', { mspId, ccName, channelName, identityLabel, ccpPath, discoveryEnabled, discoveryAsLocalhost });
   const ccp = JSON.parse(fs.readFileSync(ccpPath, 'utf8'));
   const wallet = await Wallets.newFileSystemWallet(walletPath);
+  const existing = await wallet.get(identityLabel);
+  const certPathRaw = getOrgEnv(mspId, 'CERT_PATH');
+  const keyPathRaw = getOrgEnv(mspId, 'KEY_PATH');
+  const certPath = certPathRaw && (path.isAbsolute(certPathRaw) ? certPathRaw : path.resolve(__dirname, '..', certPathRaw));
+  const keyPath = keyPathRaw && (path.isAbsolute(keyPathRaw) ? keyPathRaw : path.resolve(__dirname, '..', keyPathRaw));
 
-  if (!await wallet.get(identityLabel)) {
-    const certPathRaw = getOrgEnv(mspId, 'CERT_PATH');
-    const keyPathRaw = getOrgEnv(mspId, 'KEY_PATH');
-    const certPath = certPathRaw && (path.isAbsolute(certPathRaw) ? certPathRaw : path.resolve(__dirname, '..', certPathRaw));
-    const keyPath = keyPathRaw && (path.isAbsolute(keyPathRaw) ? keyPathRaw : path.resolve(__dirname, '..', keyPathRaw));
+  if (!existing) {
     if (!certPath || !keyPath) {
       throw new Error(`Identity ${identityLabel} for ${mspId} not found in wallet and CERT/KEY env not provided`);
     }
     const cert = fs.readFileSync(certPath, 'utf8');
     const key = fs.readFileSync(keyPath, 'utf8');
-    const identity = {
-      credentials: { certificate: cert, privateKey: key },
-      mspId: mspId,
-      type: 'X.509',
-    };
+    const identity = { credentials: { certificate: cert, privateKey: key }, mspId: mspId, type: 'X.509' };
     await wallet.put(identityLabel, identity);
     logger.info('gateway.identity.imported', { mspId, identityLabel });
+  } else {
+    // Validate MSP ID and optionally refresh credentials if files differ
+    if (existing.mspId && existing.mspId !== mspId) {
+      throw new Error(`Wallet identity '${identityLabel}' has mspId='${existing.mspId}' but expected '${mspId}'. Remove ${path.join(walletPath, identityLabel + '.id')} to re-import.`);
+    }
+    if (certPath && keyPath) {
+      try {
+        const certFile = fs.readFileSync(certPath, 'utf8');
+        const keyFile = fs.readFileSync(keyPath, 'utf8');
+        const curCert = existing.credentials && existing.credentials.certificate;
+        const curKey = existing.credentials && existing.credentials.privateKey;
+        if (curCert !== certFile || curKey !== keyFile) {
+          const identity = { credentials: { certificate: certFile, privateKey: keyFile }, mspId: mspId, type: 'X.509' };
+          await wallet.put(identityLabel, identity);
+          logger.warn('gateway.identity.updated', { mspId, identityLabel, reason: 'cert/key changed on disk' });
+        }
+      } catch (e) {
+        logger.warn('gateway.identity.refresh.error', { mspId, identityLabel, error: e && e.message });
+      }
+    }
   }
 
   const gateway = new Gateway();

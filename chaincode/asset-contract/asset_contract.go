@@ -362,9 +362,9 @@ func (c *AssetContract) scanEvents(ctx contractapi.TransactionContextInterface, 
         default:
             kind = "EVENT"
         }
-        // date is last token in key (after last ':')
-        parts := strings.Split(kv.Key, ":")
-        date := parts[len(parts)-1]
+        // date is the suffix after the prefix (e.g. "XFER:AST-IT-0001:2026-02-10T19:28:50Z")
+        // Note: RFC3339 dates contain ':' so we cannot simply split by ':'
+        date := strings.TrimPrefix(kv.Key, prefix)
         // parse payload and extract txId if present
         txid := ""
         var tmp map[string]interface{}

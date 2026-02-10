@@ -34,21 +34,37 @@ app.get('/health', (req, res) => {
 
 // Generic evaluate (query)
 app.post('/api/evaluate', async (req, res) => {
+  const { function: fn, args = [], target } = req.body || {};
+  if (!fn) return res.status(400).json({ error: 'function is required' });
+  const msp = resolveMSP(req);
+  const cc = target && typeof target === 'string' ? target : process.env.FABRIC_CHAINCODE;
+  if (req.log) req.log.info('evaluate.call', { msp, cc, fn, argc: Array.isArray(args) ? args.length : 0 });
+
+  // First attempt: use default discovery setting
   try {
-    const { function: fn, args = [], target } = req.body || {};
-    if (!fn) return res.status(400).json({ error: 'function is required' });
-    const msp = resolveMSP(req);
-    const cc = target && typeof target === 'string' ? target : process.env.FABRIC_CHAINCODE;
-    if (req.log) req.log.info('evaluate.call', { msp, cc, fn, argc: Array.isArray(args) ? args.length : 0 });
     const contract = await getContractForMSPAndCC(msp, cc);
     const result = await contract.evaluateTransaction(fn, ...args);
-    // try parse JSON
     let payload;
     try { payload = JSON.parse(result.toString('utf8')); } catch { payload = result.toString('utf8'); }
-    res.json({ ok: true, result: payload });
+    return res.json({ ok: true, result: payload });
   } catch (err) {
-    if (req.log) req.log.error('evaluate.error', { error: err.message });
-    res.status(500).json({ ok: false, error: err.message });
+    const msg = (err && err.message) || '';
+    // If discovery-related access is denied, retry once without discovery
+    if (/DiscoveryService|access denied|discovery error/i.test(msg)) {
+      if (req.log) req.log.warn('evaluate.retryNoDiscovery', { msp, cc, fn, reason: msg });
+      try {
+        const contract = await getContractForMSPAndCC(msp, cc, { discoveryEnabled: false });
+        const result = await contract.evaluateTransaction(fn, ...args);
+        let payload;
+        try { payload = JSON.parse(result.toString('utf8')); } catch { payload = result.toString('utf8'); }
+        return res.json({ ok: true, result: payload });
+      } catch (err2) {
+        if (req.log) req.log.error('evaluate.error.afterRetry', { error: err2.message });
+        return res.status(500).json({ ok: false, error: err2.message });
+      }
+    }
+    if (req.log) req.log.error('evaluate.error', { error: msg });
+    return res.status(500).json({ ok: false, error: msg });
   }
 });
 
@@ -201,7 +217,7 @@ app.get('/api/network/tx/:txId', async (req, res) => {
 app.get('/api/network/blockByTx/:txId', async (req, res) => {
   try {
     const msp = resolveMSP(req);
-    const contract = await getContractForMSPAndCC(msp, 'qscc');
+    const contract = await getContractForMSPAndCC(msp, 'qscc', { discoveryEnabled: false });
     const channel = process.env.FABRIC_CHANNEL;
     const buf = await contract.evaluateTransaction('GetBlockByTxID', channel, req.params.txId);
     const { common } = getNs();
